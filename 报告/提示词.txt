@@ -1,0 +1,282 @@
+6.5
+
+三、代码质量与简洁性建议
+Controller 层：
+文件数量适中（4 个 Controller），已合并非必须的模块。
+建议统一返回类型为 Result<T>。
+/approve 接口需限制审批顺序，防止低分申请绕过队列。
+Service 层：
+ApplicationService 逻辑完整，但分房/调房/退房重复代码可抽取公共方法 allocateHouseToApplicant()。
+调房申请需严格校验原住房面积。
+批量分房建议返回每个住户的分配单。
+Mapper 层：
+文件齐全，建议在 Mapper XML 中加排序查询（房号升序，面积递增）。
+可考虑合并 HouseMapper + HouseStandardMapper 和 ResidentMapper + RentBillMapper，减少文件数量。
+Entity 层：
+Resident 不能用姓名作主键，建议增加自增 ID 并保证房号唯一。
+HouseStandard 用面积作主键可保留，但最好加唯一 ID。
+建议在 Application 中增加 allocatedHouseNo 字段，方便查询分配记录。
+资源文件：
+application.yml、schema.sql、data.sql 是必要文件。
+application.properties 若与 yml 重复，可删除。
+非必要文件：
+target/ 文件夹、.idea/ 文件夹、.iml 文件、HELP.md 等可以删除。
+Maven Wrapper (mvnw, .mvn/) 可以保留也可以删，看是否需要在其他环境直接构建。增加真正的月底自动分房任务 (@Scheduled)。
+调房申请严格校验原房面积和原子事务。
+退房账单删除需按姓名+房号。
+住房条件查询改查 house_standard。
+增加修改住房标准（最低分数）接口。
+统计表接口完善（部门、房型、空房数量）。
+Controller 返回类型统一。
+可以进一步合并 Service/Mapper 文件，减少非必要拆分。给我按照这个建议继续给我完善我的后端代码，当前目录的后端代码
+
+
+
+
+给我根据这个修改意见给我修改我的代码，并且要求符合题目要求，最后给我生成修改日志明白了，你希望保持你现有的**Mapper / Service / Controller / Entity 分层不合并**，并使用“写法三”——也就是**完全用 MyBatis-Plus 的 `QueryWrapper` 和内置方法，不再依赖 XML 或注解 SQL**，保持每张表对应 Mapper，逻辑清晰，便于课程设计答辩。下面我给你具体的修改建议和实现逻辑，按照课程设计思路整理。
+
+---
+
+# 一、核心修改原则（写法三）
+
+1. **每张表对应一个 Mapper**：
+
+   * `ApplicationMapper` → `application` 表
+   * `HouseMapper` → `house` 表
+   * `HouseStandardMapper` → `house_standard` 表
+   * `ResidentMapper` → `resident` 表
+   * `RentBillMapper` → `rent_bill` 表
+
+2. **不使用 XML，也不使用 `@Select/@Insert` 注解**：
+
+   * 使用 MyBatis-Plus 提供的 `BaseMapper` 自带方法：
+
+     * `insert()`
+     * `updateById()`
+     * `selectById()`
+     * `selectList(QueryWrapper)`
+   * 复杂查询使用 `QueryWrapper` 构建条件。
+
+3. **Service 层处理业务逻辑**：
+
+   * 分房/调房/退房逻辑都在 Service 层。
+   * 保证**事务**：
+
+     ```java
+     @Transactional(rollbackFor = Exception.class)
+     public void allocateHouse(Application app) { ... }
+     ```
+
+4. **Controller 层只负责接收请求、调用 Service、返回结果**。
+
+---
+
+# 二、具体修改建议
+
+## 1. ApplicationService
+
+### 问题与修改建议：
+
+| 功能     | 建议                                                                                                                |
+| ------ | ----------------------------------------------------------------------------------------------------------------- |
+| 分房     | 使用 `HouseMapper.selectList(QueryWrapper)` 获取空房列表；按面积 DESC、房号 ASC 排序；循环匹配申请分数和最低分数；直接通过 `insert` 和 `updateById` 修改 |
+| 调房     | 先从 `ResidentMapper` 查原房信息，验证面积；再通过 `HouseMapper` 找新房；更新原房状态；插入新住户和账单                                              |
+| 退房     | 从 `ResidentMapper` 删除住户信息；从 `RentBillMapper` 删除账单（按姓名+房号）；更新 `HouseMapper` 空房状态                                   |
+| 分房队列   | 使用 `ApplicationMapper.selectList(QueryWrapper)` 按分数 DESC 排序，无需 XML                                                |
+| 驳回申请   | 计算分数低于最低分数时，直接抛异常，不回滚已保存的记录，或者按业务保存为 `status=2`                                                                   |
+| 月底自动分房 | 用 `@Scheduled` 调用分房方法；可用 QueryWrapper 获取待分房申请列表                                                                   |
+
+示例：
+
+```java
+QueryWrapper<House> houseQuery = new QueryWrapper<>();
+houseQuery.eq("status", 0)
+          .ge("area", reqArea)
+          .orderByDesc("area")
+          .orderByAsc("house_no");
+List<House> availableHouses = houseMapper.selectList(houseQuery);
+```
+
+---
+
+## 2. HouseService
+
+* 移除 `HouseStandardMapper` 注入。
+* 使用 `HouseMapper` 提供的 `QueryWrapper` 查询和修改 `house_standard`。
+* 示例：
+
+```java
+QueryWrapper<HouseStandard> wrapper = new QueryWrapper<>();
+wrapper.orderByAsc("area");
+List<HouseStandard> standards = houseMapper.selectList(wrapper);
+```
+
+* 插入/更新标准：
+
+```java
+houseMapper.insert(standard);
+houseMapper.updateById(standard);
+```
+
+---
+
+## 3. ResidentService
+
+* 移除 `RentBillMapper` 注入。
+* 使用 `ResidentMapper` 来查询住户和账单。
+* 查询示例：
+
+```java
+QueryWrapper<Resident> query = new QueryWrapper<>();
+query.eq("owner_name", ownerName).eq("house_no", houseNo);
+Resident resident = residentMapper.selectOne(query);
+```
+
+* 删除账单：
+
+```java
+QueryWrapper<RentBill> billQuery = new QueryWrapper<>();
+billQuery.eq("owner_name", ownerName).eq("house_no", houseNo);
+rentBillMapper.delete(billQuery);
+```
+
+---
+
+## 4. Mapper 层
+
+* 保持每张表独立 Mapper。
+* Mapper 方法仅使用 MyBatis-Plus 内置方法。
+* **删除所有 XML 文件**，不依赖注解 SQL。
+
+---
+
+## 5. Controller 层
+
+* 保持原分层。
+* Controller 只调用 Service。
+* 返回统一 `Result<T>`。
+* 示例：
+
+```java
+@PostMapping("/application/submit")
+public Result<String> submitApplication(@RequestBody ApplicationSubmitDTO dto) {
+    applicationService.submitApplication(dto);
+    return Result.success("申请提交成功");
+}
+```
+
+---
+
+## 6. 数据库操作
+
+* 全部通过 Mapper 的 `BaseMapper` + `QueryWrapper` 实现。
+* 不用 XML 或注解 SQL。
+* 复杂逻辑如“按分数排序队列”通过 `QueryWrapper.orderByDesc("score").orderByAsc("create_time")` 实现。
+* 事务通过 `@Transactional` 管理。
+
+---
+
+## 7. 注意点
+
+1. **分房队列**：查询时排序即可，不需要额外队列表。
+2. **原房面积校验**：调房申请必须验证原房面积。
+3. **退房账单删除**：一定要加 `house_no`，避免误删。
+4. **分页或排序**：查询列表可用 `QueryWrapper.orderByAsc()`。
+5. **敏感信息加密**：可用 `EncryptUtil` 加密字段，查询时解密。
+6. **加分项**：
+
+   * Redis 缓存空房列表或分房队列
+   * Redisson 分布式锁防止重复分配
+   * 多线程可用于批量分房或统计报表
+
+---
+
+✅ **结论**
+
+* 保留现有 Mapper / Service / Controller / Entity 分层，不合并。
+* XML 可以全部删除，使用 MyBatis-Plus 自带方法 + QueryWrapper 完成所有 SQL。
+* Service 层逻辑清楚，Controller 只调用 Service。
+* 前端 Vue 可以直接调用 Controller 提供的 REST API。
+* 这是“写法三”，简洁且符合课程设计逻辑，便于答辩和扩展加分项。
+
+---
+
+如果你需要，我可以帮你**整理一份修改后的 Mapper/Service 示例代码模板**，完全不用 XML，直接用 QueryWrapper 写法三方式，让你的 Demo(5) 完全干净、可运行，并能直接对接前端。
+
+你希望我帮你整理吗？
+
+
+
+
+
+但我建议你在写前端前，先改这 4 个地方：
+
+删除 ApplicationService.allocatePendingApplications() 上的 @Async。
+补充申请提交、审批、调房、退房后的缓存清理，或者先不用 Redis 缓存。
+AdminController 不要直接注入 Mapper，尽量走 Service。
+退房和删除住户时不要只按姓名删除，最好按 ownerName + houseNo 删除。给我修改并生成修改日志
+
+
+
+以上压缩包 里的所有代码应该就是我的后端的代码，请你详细阅读所有代码，我现在要进行前端的开发，请你给我生成具体步骤
+
+我的课设题目要求和开发要求如下6. 房产管理系统 
+该系统应具有分房、调房、退房和咨询统计功能。
+房产科把用户申请表（按照统一的格式由用户填写）输入系统后，系统首先
+检查申请表的合法性，对不合法的申请表系统拒绝接受，对合法的申请表根据类
+型分别进行处理。
+（1）如果是分房申请，则根据申请者的情况计算其分数，当分数高于阈值
+分数时，按分数高低将申请单插到分房队列的适当位置。每月最后一天进行一次
+分房活动，从空房文件中读出空房信息，把好房优先分配给排在分房队列前面的
+符合该登记住房条件的申请者，从空房文件中删除掉这个房号的信息，从分房队
+列中删除申请单，并把此房号的信息和住户信息一起写到住房文件中，输出住房
+分配单给住户，同时计算房租并将算出的房租写到房租文件中。
+（2）如果是退房申请，则从住房文件和房租文件中删除有关的信息，再把
+此房号的信息写到空房文件中。
+（3）如果是调房申请，则根据申请者的情况确定其住房等级，然后在空房
+文件中查找属于给等级的空房，退掉原住房，再进行与分房类似的处理。
+住户可向系统询问目前分房的阈值分数，居住某类房屋的条件，某房号的单
+位面积房租等信息。房产科可以要求系统打印出住房情况的统计表，或更改某类
+房屋的居住条件、单位面积房租等。
+数据要求：
+（1）住房标准表：住房面积、最低住房分数（按住房面积大小递增排列）
+（2）房产表：房号、住房面积、分配标志、每平方米房租（按房号递增排列）
+（3）住房表：户主、部门、职称、家庭人口、住房分数、房号、住房面积
+（4）住房要求：户主＋[分房要求∣调房要求∣退房要求]
+（5）分房要求：部门、职称、家庭人口、住房分数、要求住房面积
+（6）调房要求：部门、职称、家庭人口、住房分数、原住房面积、原房号、要
+求调房面积
+（7）退房要求：部门、房号
+技术要求：后端采用Spring Boot+MyBatis，前端采用Vue加分项包括：（1）事务管理；（2）redis；（3）分布式锁；（4）https；（5）多线程；（6）敏感数据加解密，后端代码已经大概完成，请你详细分析我的后端代码，然后给我生成对应的前端代码
+
+
+你给我启动进行调试
+你给我配置Redis环境，并生成刚才的详细的调试日志
+6.9
+
+这些前端的文字都是乱码的，要怎么改
+
+为什么总是显示服务器内部错误，而且还是乱码，我把后端和前端代码数据库代码都发你，你给我详细分析一下到底是哪里的问题
+
+
+请你给我重新分析一下题目要求，应该要有登录界面，就是房产科的界面和普通居民用户的界面应该不一样，而我目前的界面没有区分也没有登录界面，给我详细分析
+
+就是写一个登录页面，管理员账户和密码是admin 和123456，除了这个账户名和密码的都算普通住户，两人的界面不一样，请你告诉我要怎么修改
+
+登录界面去掉房子的图标，还有“大连民族大学 住房分配与管理平台”，还有下边的提示语提示
+管理员账户：admin / 密码：123456
+普通住户：输入任意用户名和密码即可登录，给我进行修改
+
+登录界面的深蓝色背景换成白色
+
+我想的是每次进入网站都要重新登录，不是之前登录过一次就以后都不用登录了，给我修改代码，而且登录界面不是随便输入用户名和密码就可以进，没登录过的要注册，注册过的登录要检测密码是否正确，给我修改代码
+
+
+侧边栏中最上方房产管理系统的图标给我去掉，系统概览的“管理员视图”和“xx视图”字样也去掉，管理员界面系统概览中的快捷操作不需要提交申请，给我进行修改
+
+
+我想再加一个部分，就是这个房子的信息也又房产科管理员进行增加和修改，比如房子不够又买了需要增加信息，然后在管理员界面和用户界面都要更新，或者房子不属于房产科，需要删除这个房子的信息也要在管理员和用户界面都要更新，给我进行代码修改并告诉我修改的地方
+
+我想增加一个功能，用户提交的申请还要可以撤回，给我进行修改
+
+我想修改一下住户界面，就是想将系统概述页面的名字改成个人信息，并且在“我的住房信息”这个模块可以允许用户修改家庭人口、部门 和职称，之后并进行信息更新，请你给我修改代码

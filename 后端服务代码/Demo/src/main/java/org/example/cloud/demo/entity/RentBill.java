@@ -6,14 +6,15 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-
 @Data
 @TableName("rent_bill")
 public class RentBill {
-    @TableId(value = "house_no", type = IdType.INPUT) // 联合主键之一，这里作为标识
+    @TableId(type = IdType.AUTO)
+    private Integer id;
     private String houseNo;
     private String ownerName;
     private String billMonth;
     private BigDecimal rentAmount;
+
     private LocalDate createTime;
 }

@@ -9,7 +9,8 @@ import java.math.BigDecimal;
 @Data
 @TableName("resident")
 public class Resident {
-    @TableId(value = "owner_name", type = IdType.INPUT) // 以户主姓名作为自然主键
+    @TableId(type = IdType.AUTO)
+    private Integer id;
     private String ownerName;
     private String department;
     private String title;

@@ -7,12 +7,10 @@ import lombok.Data;
 import java.math.BigDecimal;
 
 @Data
-@TableName("house_standard") // 对应数据库的住房标准表
+@TableName("house_standard")
 public class HouseStandard {
-
-    @TableId(value = "standard_no", type = IdType.INPUT) // 之前规划的标准号主键
-    private String standardNo;
-
+    @TableId(type = IdType.AUTO)
+    private Integer id;
     private BigDecimal area;
     private Integer minScore;
 }

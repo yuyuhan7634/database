@@ -1,15 +1,13 @@
 package org.example.cloud.demo.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import org.example.cloud.demo.common.Result;
 import org.example.cloud.demo.entity.House;
-import org.example.cloud.demo.entity.Resident;
-import org.example.cloud.demo.mapper.HouseMapper;
-import org.example.cloud.demo.mapper.ResidentMapper;
+import org.example.cloud.demo.entity.HouseStandard;
+import org.example.cloud.demo.service.ApplicationService;
+import org.example.cloud.demo.service.HouseService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-
 import java.math.BigDecimal;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,52 +16,119 @@ import java.util.Map;
 public class AdminController {
 
     @Autowired
-    private HouseMapper houseMapper;
+    private HouseService houseService;
+
     @Autowired
-    private ResidentMapper residentMapper;
+    private ApplicationService applicationService;
 
-    // ================== 1. 住房情况统计大屏接口 ==================
-    @GetMapping("/stats")
-    public Map<String, Object> getSystemStats() {
-        Map<String, Object> stats = new HashMap<>();
+    // ================== 1. 综合统计表接口 ==================
 
-        // 统计 1：全校房源总数、已分配数量、空闲数量
-        long totalHouses = houseMapper.selectCount(null);
-        long occupiedHouses = houseMapper.selectCount(new QueryWrapper<House>().eq("status", 1));
-        long emptyHouses = houseMapper.selectCount(new QueryWrapper<House>().eq("status", 0));
-
-        stats.put("total_houses", totalHouses);
-        stats.put("occupied_houses", occupiedHouses);
-        stats.put("empty_houses", emptyHouses);
-
-        // 统计 2：利用 MyBatis-Plus 的聚合查询，统计各学院/部门的入住人数
-        // 对应的原生 SQL: SELECT department, COUNT(*) as count FROM resident GROUP BY department
-        QueryWrapper<Resident> deptQuery = new QueryWrapper<>();
-        deptQuery.select("department", "count(*) as count").groupBy("department");
-        List<Map<String, Object>> deptStats = residentMapper.selectMaps(deptQuery);
-
-        stats.put("department_stats", deptStats);
-
-        return stats;
+    @GetMapping("/statistics")
+    public Result<Map<String, Object>> getStatistics() {
+        Map<String, Object> stats = applicationService.generateStatistics();
+        return Result.success("统计数据获取成功", stats);
     }
 
-    // ================== 2. 系统参数修改接口 ==================
-    /**
-     * 允许房产科修改某一套房屋的单价
-     * @param houseNo 房号
-     * @param newRent 新的每平米租金单价
-     */
-    @PostMapping("/updateRent")
-    public String updateHouseRent(@RequestParam String houseNo, @RequestParam BigDecimal newRent) {
-        House house = houseMapper.selectById(houseNo);
+    // ================== 2. 阈值分数查询 ==================
+
+    @GetMapping("/threshold")
+    public Result<List<HouseStandard>> getThresholds() {
+        List<HouseStandard> list = houseService.getAllStandards();
+        return Result.success("阈值查询成功", list);
+    }
+
+    // ================== 3. 房源详情查询 ==================
+
+    @GetMapping("/house-info")
+    public Result<House> getHouseInfo(@RequestParam String houseNo) {
+        House house = houseService.getHouseByNo(houseNo);
         if (house == null) {
-            return "错误：找不到该房号！";
+            return Result.error("未找到该房源信息！");
         }
+        return Result.success("房源详情查询成功", house);
+    }
 
-        // 修改并落库
+    // ================== 4. 住房条件查询 ==================
+
+    @GetMapping("/housing-conditions")
+    public Result<List<HouseStandard>> getHousingConditions(
+            @RequestParam(required = false) BigDecimal minArea,
+            @RequestParam(required = false) BigDecimal maxArea) {
+        List<HouseStandard> standards = houseService.getStandardsByAreaRange(minArea, maxArea);
+        return Result.success("住房条件查询成功", standards);
+    }
+
+    // ================== 5. 修改住房标准 ==================
+
+    @PostMapping("/updateStandard")
+    public Result<String> updateStandard(@RequestParam BigDecimal area, @RequestParam Integer minScore) {
+        HouseStandard standard = houseService.getStandardByArea(area);
+        if (standard == null) {
+            return Result.error("错误：面积为 " + area + " 的住房标准不存在！");
+        }
+        standard.setMinScore(minScore);
+        houseService.updateStandard(standard);
+        return Result.success("住房标准更新成功！面积 " + area + " ㎡ 的最低分数已调整为: " + minScore + " 分");
+    }
+
+    // ================== 6. 租金调整接口 ==================
+
+    @PostMapping("/updateRent")
+    public Result<String> updateHouseRent(@RequestParam String houseNo, @RequestParam BigDecimal newRent) {
+        House house = houseService.getHouseByNo(houseNo);
+        if (house == null) {
+            return Result.error("错误：找不到该房号！");
+        }
         house.setRentPerSqm(newRent);
-        houseMapper.updateById(house);
+        houseService.updateHouse(house);
+        return Result.success("参数更新成功！房号 [" + houseNo + "] 的每平米租金已调整为: " + newRent);
+    }
 
-        return "参数更新成功！房号 [" + houseNo + "] 的每平米租金已调整为: " + newRent;
+    // ================== 7. 房屋增删改接口 ==================
+
+    @PostMapping("/addHouse")
+    public Result<String> addHouse(@RequestParam String houseNo,
+                                   @RequestParam BigDecimal area,
+                                   @RequestParam BigDecimal rentPerSqm) {
+        House existing = houseService.getHouseByNo(houseNo);
+        if (existing != null) {
+            return Result.error("错误：房号 [" + houseNo + "] 已存在！");
+        }
+        House house = new House();
+        house.setHouseNo(houseNo);
+        house.setArea(area);
+        house.setStatus(0); // 默认空闲
+        house.setRentPerSqm(rentPerSqm);
+        houseService.addHouse(house);
+        return Result.success("房屋添加成功！房号: " + houseNo);
+    }
+
+    @PostMapping("/updateHouse")
+    public Result<String> updateHouse(@RequestParam String houseNo,
+                                      @RequestParam(required = false) BigDecimal area,
+                                      @RequestParam(required = false) BigDecimal rentPerSqm,
+                                      @RequestParam(required = false) Integer status) {
+        House house = houseService.getHouseByNo(houseNo);
+        if (house == null) {
+            return Result.error("错误：找不到该房号！");
+        }
+        if (area != null) house.setArea(area);
+        if (rentPerSqm != null) house.setRentPerSqm(rentPerSqm);
+        if (status != null) house.setStatus(status);
+        houseService.updateHouse(house);
+        return Result.success("房屋信息更新成功！房号: " + houseNo);
+    }
+
+    @PostMapping("/deleteHouse")
+    public Result<String> deleteHouse(@RequestParam String houseNo) {
+        House house = houseService.getHouseByNo(houseNo);
+        if (house == null) {
+            return Result.error("错误：找不到该房号！");
+        }
+        if (house.getStatus() == 1) {
+            return Result.error("错误：该房屋当前有人居住，无法删除！");
+        }
+        houseService.deleteHouse(houseNo);
+        return Result.success("房屋删除成功！房号: " + houseNo);
     }
 }

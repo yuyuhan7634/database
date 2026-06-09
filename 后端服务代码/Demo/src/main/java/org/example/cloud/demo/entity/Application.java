@@ -19,6 +19,7 @@ public class Application {
     private Integer applyStatus;
     private BigDecimal reqArea;
     private String oldHouseNo;
+    private String allocatedHouseNo;
     private LocalDateTime createTime;
     private String title;
     private Integer familySize;
