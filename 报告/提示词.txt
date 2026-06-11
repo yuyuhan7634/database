@@ -531,3 +531,42 @@ try {
 建议：添加 @ControllerAdvice 全局异常处理器，Controller 中只写 return Result.success(service.xxx())。给我解决这个问题 
 
 请你给我分析一下现在的文件结构如何，还有什么需要删改的吗
+
+
+ok现在我要进行运行告诉我怎么运行
+
+
+2. 修改 Element Plus 主题色
+当前是默认蓝色 #409eff，改成更专业的深蓝。
+
+做法：在 global.css 或 main.js 中加几行 CSS 变量覆盖：
+
+
+:root {
+  --el-color-primary: #1e6f9f;      /* 主色改为深海蓝 */
+  --el-color-primary-light-3: #3d8bc0;
+  --el-color-primary-dark-2: #155a80;
+}
+所有按钮、标签、链接颜色会自动跟着变。. 侧边栏选中菜单加渐变指示条
+当前选中菜单是纯色背景，改成左侧有个彩色竖条更现代。
+
+做法：在 Layout.vue 的 <style> 中覆盖 Element Plus 的菜单样式：
+
+
+.el-menu-item.is-active {
+  background: linear-gradient(90deg, #1e6f9f 3px, #00284d 3px) !important;
+}先给我进行如下修改
+
+
+4. Dashboard 统计卡片加图标和渐变背景
+当前 4 个统计卡片是白底黑字，比较朴素。
+做法：给每个卡片加一个淡色渐变背景：不要加图标
+5. 登录页加背景图片或渐变
+当前登录页是纯浅灰背景 #f0f2f5，略显单调。
+做法：Login.vue 的背景改成带纹理的渐变，或者加半透明几何装饰图形：
+6. 页面标题加图标和下划线
+当前所有页面标题（如"系统概览"、"申请列表"）只是纯文字 <h2>。
+
+做法：在 global.css 的 .page-title 中加一个左侧竖条装饰：
+给我实现
+
