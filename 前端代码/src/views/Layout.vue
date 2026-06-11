@@ -199,4 +199,12 @@ async function handleLogout() {
   background: #f0f2f5; padding: 20px; overflow-y: auto;
 }
 .el-menu { border-right: none; }
+
+/* 侧边栏选中菜单：左侧渐变指示条 */
+:deep(.el-menu-item.is-active) {
+  background: linear-gradient(90deg, #1677ff 3px, #00284d 3px) !important;
+}
+:deep(.el-sub-menu .el-menu-item.is-active) {
+  background: linear-gradient(90deg, #1677ff 3px, #001e36 3px) !important;
+}
 </style>

@@ -3,6 +3,16 @@
    所有页面共享的通用样式集中管理，避免各组件重复定义
    ============================================================ */
 
+/* ===== Element Plus 主题色覆盖（深海蓝） ===== */
+:root {
+  --el-color-primary: #1677ff;
+  --el-color-primary-light-3: #4595ff;
+  --el-color-primary-light-5: #75b3ff;
+  --el-color-primary-light-7: #a8d1ff;
+  --el-color-primary-light-9: #dbe8ff;
+  --el-color-primary-dark-2: #0958d9;
+}
+
 /* 页面标题 */
 .page-title {
   margin: 0 0 20px;

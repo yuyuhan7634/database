@@ -1,1 +1,0 @@
-import{r as e}from"./request-BfXbNDw_.js";function a(){return e.get("/resident/list")}function l(){return e.get("/resident/bill/list")}function u(t){return e.post("/resident/bill/generate",null,{params:{month:t}})}function o(t,n,r,s){return e.post("/resident/updateInfo",null,{params:{ownerName:t,department:n,title:r,familySize:s}})}export{l as a,u as b,a as g,o as u};
