@@ -76,6 +76,13 @@
 
         <!-- ========== 加分项依赖 ========== -->
 
+        <!-- 嵌入内存 Redis（无需安装，随应用启停） -->
+        <dependency>
+            <groupId>com.github.codemonstur</groupId>
+            <artifactId>embedded-redis</artifactId>
+            <version>1.4.3</version>
+        </dependency>
+
         <!-- Redis (缓存 + 分布式锁) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

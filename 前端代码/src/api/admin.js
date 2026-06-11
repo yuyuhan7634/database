@@ -10,11 +10,6 @@ export function getThresholds() {
   return request.get('/admin/threshold')
 }
 
-// 查询房源详情
-export function getAdminHouseInfo(houseNo) {
-  return request.get('/admin/house-info', { params: { houseNo } })
-}
-
 // 按面积范围查询住房条件
 export function getHousingConditions(minArea, maxArea) {
   return request.get('/admin/housing-conditions', {

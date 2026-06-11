@@ -27,12 +27,8 @@ public class ResidentController {
                                        @RequestParam(required = false) String department,
                                        @RequestParam(required = false) String title,
                                        @RequestParam(required = false) Integer familySize) {
-        try {
-            Resident updated = residentService.updateResidentInfo(ownerName, department, title, familySize);
-            return Result.success("个人信息更新成功！住房分数已重新计算为: " + updated.getScore() + " 分", updated);
-        } catch (Exception e) {
-            return Result.error("更新失败：" + e.getMessage());
-        }
+        Resident updated = residentService.updateResidentInfo(ownerName, department, title, familySize);
+        return Result.success("个人信息更新成功！住房分数已重新计算为: " + updated.getScore() + " 分", updated);
     }
 
     // ================== 房租账单管理 ==================
@@ -47,11 +43,7 @@ public class ResidentController {
         if (month == null || !month.matches("\\d{4}-\\d{2}")) {
             return Result.error("月份格式错误，应为 yyyy-MM，例如 2026-06");
         }
-        try {
-            int count = residentService.generateMonthlyBills(month);
-            return Result.success("执行成功！已生成 " + count + " 份 [" + month + "] 月份的房租账单。");
-        } catch (Exception e) {
-            return Result.error("账单生成失败：" + e.getMessage());
-        }
+        int count = residentService.generateMonthlyBills(month);
+        return Result.success("执行成功！已生成 " + count + " 份 [" + month + "] 月份的房租账单。");
     }
 }

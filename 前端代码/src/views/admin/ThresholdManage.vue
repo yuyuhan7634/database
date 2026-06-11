@@ -62,20 +62,21 @@
     </el-dialog>
 
     <!-- 结果弹窗 -->
-    <el-dialog v-model="resultVisible" title="操作结果" width="400px">
-      <el-result :icon="resultSuccess ? 'success' : 'error'" :title="resultSuccess ? '修改成功' : '修改失败'">
-        <template #extra>
-          <p>{{ resultMsg }}</p>
-          <el-button type="primary" @click="resultVisible = false; fetchData()" style="margin-top:12px">确定</el-button>
-        </template>
-      </el-result>
-    </el-dialog>
+    <ResultDialog
+      v-model="resultVisible"
+      :success="resultSuccess"
+      :message="resultMsg"
+      success-title="修改成功"
+      fail-title="修改失败"
+      @confirm="resultVisible = false; fetchData()"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getThresholds, updateStandard, getHousingConditions } from '../../api/admin'
+import ResultDialog from '../../components/ResultDialog.vue'
 
 const list = ref([])
 const loading = ref(false)
@@ -138,5 +139,4 @@ onMounted(fetchData)
 </script>
 
 <style scoped>
-.page-title { margin: 0 0 20px; font-size: 22px; }
 </style>

@@ -7,6 +7,7 @@ import org.example.cloud.demo.entity.Resident;
 import org.example.cloud.demo.mapper.HouseMapper;
 import org.example.cloud.demo.mapper.RentBillMapper;
 import org.example.cloud.demo.mapper.ResidentMapper;
+import org.example.cloud.demo.util.AesUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -19,6 +20,7 @@ import java.util.List;
 
 /**
  * 住户服务（住户信息管理 + 房租账单管理）
+ * 敏感字段（ownerName, department）写入数据库前 AES 加密，读取后解密。
  */
 @Service
 public class ResidentService {
@@ -32,28 +34,52 @@ public class ResidentService {
     @Autowired
     private HouseMapper houseMapper;
 
+    // ================== 加解密工具方法 ==================
+
+    /** 写入前加密敏感字段 */
+    private void encryptResident(Resident r) {
+        if (r == null) return;
+        r.setOwnerName(AesUtil.encrypt(r.getOwnerName()));
+        r.setDepartment(AesUtil.encrypt(r.getDepartment()));
+    }
+
+    /** 读取后解密敏感字段 */
+    private void decryptResident(Resident r) {
+        if (r == null) return;
+        r.setOwnerName(AesUtil.decrypt(r.getOwnerName()));
+        r.setDepartment(AesUtil.decrypt(r.getDepartment()));
+    }
+
     // ================== 住户管理 ==================
 
     @Cacheable(value = "residents", key = "'all'")
     public List<Resident> getAllResidents() {
-        return residentMapper.selectList(null);
+        List<Resident> list = residentMapper.selectList(null);
+        list.forEach(this::decryptResident);
+        return list;
     }
 
     public Resident getResidentByName(String ownerName) {
         QueryWrapper<Resident> query = new QueryWrapper<>();
-        query.eq("owner_name", ownerName);
-        return residentMapper.selectOne(query);
+        query.eq("owner_name", AesUtil.encrypt(ownerName));
+        Resident r = residentMapper.selectOne(query);
+        decryptResident(r);
+        return r;
     }
 
     public Resident getResidentByHouseNo(String houseNo) {
         QueryWrapper<Resident> query = new QueryWrapper<>();
         query.eq("house_no", houseNo);
-        return residentMapper.selectOne(query);
+        Resident r = residentMapper.selectOne(query);
+        decryptResident(r);
+        return r;
     }
 
     @CacheEvict(value = "residents", allEntries = true)
     public void updateResident(Resident resident) {
+        encryptResident(resident);
         residentMapper.updateById(resident);
+        decryptResident(resident);
     }
 
     /**
@@ -75,34 +101,25 @@ public class ResidentService {
         if (familySize != null && familySize > 0) {
             resident.setFamilySize(familySize);
         }
-        // 重新计算住房分数
-        int newScore = calculateHousingScore(resident.getTitle(), resident.getFamilySize());
+        int newScore = ScoreCalculator.calculate(resident.getTitle(), resident.getFamilySize());
         resident.setScore(newScore);
+        encryptResident(resident);
         residentMapper.updateById(resident);
+        decryptResident(resident);
         return resident;
-    }
-
-    /** 计算住房分数（与 ApplicationService 保持一致） */
-    private int calculateHousingScore(String title, Integer familySize) {
-        int baseScore = 40;
-        if (title != null) {
-            if (title.contains("教授") || title.contains("处长")) baseScore = 100;
-            else if (title.contains("科长") || title.contains("研究员")) baseScore = 80;
-            else if (title.contains("讲师") || title.contains("工程师")) baseScore = 60;
-            else if (title.contains("实验员") || title.contains("干事")) baseScore = 50;
-        }
-        return baseScore + (familySize != null ? familySize : 1) * 10;
     }
 
     @CacheEvict(value = "residents", allEntries = true)
     public void saveResident(Resident resident) {
+        encryptResident(resident);
         residentMapper.insert(resident);
+        decryptResident(resident);
     }
 
     @CacheEvict(value = "residents", allEntries = true)
     public void removeResidentByNameAndHouse(String ownerName, String houseNo) {
         QueryWrapper<Resident> query = new QueryWrapper<>();
-        query.eq("owner_name", ownerName).eq("house_no", houseNo);
+        query.eq("owner_name", AesUtil.encrypt(ownerName)).eq("house_no", houseNo);
         residentMapper.delete(query);
     }
 

@@ -52,10 +52,19 @@
               </el-form-item>
             </template>
 
-            <!-- 调房/退房 额外字段 -->
+            <!-- 调房/退房：原房号 -->
             <template v-if="form.applyType === 2 || form.applyType === 3">
               <el-form-item label="原房号" prop="oldHouseNo">
                 <el-input v-model="form.oldHouseNo" placeholder="请输入原住房号" />
+              </el-form-item>
+            </template>
+
+            <!-- 仅调房：原住房面积 -->
+            <template v-if="form.applyType === 2">
+              <el-form-item label="原住房面积" prop="oldHouseArea">
+                <el-select v-model="form.oldHouseArea" placeholder="请选择原住房面积" style="width:100%">
+                  <el-option v-for="s in standards" :key="s.area" :label="s.area + ' ㎡'" :value="s.area" />
+                </el-select>
               </el-form-item>
             </template>
 
@@ -79,7 +88,8 @@
             </template>
           </el-alert>
           <el-alert title="调房申请" type="warning" :closable="false" show-icon style="margin-top:12px">
-            提供原房号，系统退还原房后按分房流程重新分配。
+            提供原房号和原住房面积，系统退还原房后按分房流程重新分配。<br>
+            原住房面积需与系统中登记的一致，否则会被驳回。
           </el-alert>
           <el-alert title="退房申请" type="info" :closable="false" show-icon style="margin-top:12px">
             提供原房号，系统校验通过后清理住户信息和账单，回收房屋。
@@ -97,14 +107,16 @@
     </el-row>
 
     <!-- 提交结果弹窗 -->
-    <el-dialog v-model="resultVisible" title="提交结果" width="500px">
-      <el-result :icon="resultSuccess ? 'success' : 'error'" :title="resultSuccess ? '提交成功' : '提交失败'">
-        <template #extra>
-          <div style="white-space:pre-wrap;text-align:left;background:#f5f7fa;padding:12px;border-radius:4px;">{{ resultMsg }}</div>
-          <el-button type="primary" @click="resultVisible = false" style="margin-top:12px">知道了</el-button>
-        </template>
-      </el-result>
-    </el-dialog>
+    <ResultDialog
+      v-model="resultVisible"
+      :success="resultSuccess"
+      :message="resultMsg"
+      title="提交结果"
+      success-title="提交成功"
+      fail-title="提交失败"
+      confirm-text="知道了"
+      @confirm="resultVisible = false"
+    />
   </div>
 </template>
 
@@ -112,6 +124,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { submitApplication } from '../../api/application'
 import { getStandardList } from '../../api/house'
+import ResultDialog from '../../components/ResultDialog.vue'
 
 const formRef = ref(null)
 const standards = ref([])
@@ -143,7 +156,8 @@ const rules = {
   title: [{ required: true, message: '请选择职称', trigger: 'change' }],
   familySize: [{ required: true, message: '请输入家庭人口', trigger: 'blur' }],
   reqArea: [{ required: true, message: '请选择期望面积', trigger: 'change' }],
-  oldHouseNo: [{ required: true, message: '请输入原房号', trigger: 'blur' }]
+  oldHouseNo: [{ required: true, message: '请输入原房号', trigger: 'blur' }],
+  oldHouseArea: [{ required: true, message: '请选择原住房面积', trigger: 'change' }]
 }
 
 onMounted(async () => {
@@ -167,7 +181,7 @@ async function handleSubmit() {
       familySize: form.value.applyType !== 3 ? form.value.familySize : null,
       reqArea: form.value.applyType !== 3 ? form.value.reqArea : null,
       oldHouseNo: form.value.applyType !== 1 ? form.value.oldHouseNo : null,
-      oldHouseArea: null
+      oldHouseArea: form.value.applyType === 2 ? form.value.oldHouseArea : null
     }
     const res = await submitApplication(payload)
     resultSuccess.value = true
@@ -192,7 +206,6 @@ function resetForm() {
 </script>
 
 <style scoped>
-.page-title { margin: 0 0 20px; font-size: 22px; }
 .el-alert { margin-bottom: 4px; }
 .score-tip { font-size: 14px; color: #606266; }
 .score-tip p { margin: 6px 0; }

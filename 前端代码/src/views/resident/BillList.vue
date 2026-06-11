@@ -44,14 +44,14 @@
     </el-card>
 
     <!-- 结果弹窗 -->
-    <el-dialog v-model="resultVisible" title="操作结果" width="400px">
-      <el-result :icon="resultSuccess ? 'success' : 'error'" :title="resultSuccess ? '账单生成成功' : '生成失败'">
-        <template #extra>
-          <p>{{ resultMsg }}</p>
-          <el-button type="primary" @click="resultVisible = false; fetchData()" style="margin-top:12px">确定</el-button>
-        </template>
-      </el-result>
-    </el-dialog>
+    <ResultDialog
+      v-model="resultVisible"
+      :success="resultSuccess"
+      :message="resultMsg"
+      success-title="账单生成成功"
+      fail-title="生成失败"
+      @confirm="resultVisible = false; fetchData()"
+    />
   </div>
 </template>
 
@@ -59,6 +59,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getBillList, generateBills } from '../../api/resident'
+import ResultDialog from '../../components/ResultDialog.vue'
 
 const list = ref([])
 const loading = ref(false)
@@ -100,5 +101,4 @@ onMounted(fetchData)
 </script>
 
 <style scoped>
-.page-title { margin: 0 0 20px; font-size: 22px; }
 </style>

@@ -334,14 +334,5 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.page-title { margin: 0 0 20px; font-size: 22px; color: #303133; }
 .stat-cards { margin-bottom: 20px; }
-.stat-card { text-align: center; cursor: default; }
-.stat-value { font-size: 36px; font-weight: bold; color: #303133; }
-.stat-label { font-size: 14px; color: #909399; margin-top: 8px; }
-.quick-actions { margin-bottom: 20px; }
-.quick-card { text-align: center; cursor: pointer; transition: transform .2s; }
-.quick-card:hover { transform: translateY(-3px); }
-.quick-name { margin-top: 10px; font-size: 14px; color: #606266; }
-.section-card { margin-bottom: 20px; }
 </style>

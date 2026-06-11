@@ -58,14 +58,14 @@
     </el-row>
 
     <!-- 结果弹窗 -->
-    <el-dialog v-model="resultVisible" title="操作结果" width="400px">
-      <el-result :icon="resultSuccess ? 'success' : 'error'" :title="resultSuccess ? '调整成功' : '调整失败'">
-        <template #extra>
-          <p>{{ resultMsg }}</p>
-          <el-button type="primary" @click="resultVisible = false; fetchHouses()" style="margin-top:12px">确定</el-button>
-        </template>
-      </el-result>
-    </el-dialog>
+    <ResultDialog
+      v-model="resultVisible"
+      :success="resultSuccess"
+      :message="resultMsg"
+      success-title="调整成功"
+      fail-title="调整失败"
+      @confirm="resultVisible = false; fetchHouses()"
+    />
   </div>
 </template>
 
@@ -74,6 +74,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getHouseList } from '../../api/house'
 import { updateHouseRent } from '../../api/admin'
+import ResultDialog from '../../components/ResultDialog.vue'
 
 const houses = ref([])
 const houseLoading = ref(false)
@@ -120,6 +121,5 @@ onMounted(fetchHouses)
 </script>
 
 <style scoped>
-.page-title { margin: 0 0 20px; font-size: 22px; }
 .text-gray { color: #909399; }
 </style>

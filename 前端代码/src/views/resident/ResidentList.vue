@@ -39,5 +39,4 @@ onMounted(fetchData)
 </script>
 
 <style scoped>
-.page-title { margin: 0 0 20px; font-size: 22px; }
 </style>

@@ -3,8 +3,8 @@ package org.example.cloud.demo.controller;
 import org.example.cloud.demo.common.Result;
 import org.example.cloud.demo.entity.House;
 import org.example.cloud.demo.entity.HouseStandard;
-import org.example.cloud.demo.service.ApplicationService;
 import org.example.cloud.demo.service.HouseService;
+import org.example.cloud.demo.service.StatisticsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
@@ -19,13 +19,13 @@ public class AdminController {
     private HouseService houseService;
 
     @Autowired
-    private ApplicationService applicationService;
+    private StatisticsService statisticsService;
 
     // ================== 1. 综合统计表接口 ==================
 
     @GetMapping("/statistics")
     public Result<Map<String, Object>> getStatistics() {
-        Map<String, Object> stats = applicationService.generateStatistics();
+        Map<String, Object> stats = statisticsService.generateStatistics();
         return Result.success("统计数据获取成功", stats);
     }
 

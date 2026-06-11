@@ -121,14 +121,12 @@
     </el-dialog>
 
     <!-- 操作结果弹窗 -->
-    <el-dialog v-model="resultVisible" title="操作结果" width="400px">
-      <el-result :icon="resultSuccess ? 'success' : 'error'" :title="resultSuccess ? '操作成功' : '操作失败'">
-        <template #extra>
-          <p>{{ resultMsg }}</p>
-          <el-button type="primary" @click="resultVisible = false; fetchData()" style="margin-top:12px">确定</el-button>
-        </template>
-      </el-result>
-    </el-dialog>
+    <ResultDialog
+      v-model="resultVisible"
+      :success="resultSuccess"
+      :message="resultMsg"
+      @confirm="resultVisible = false; fetchData()"
+    />
   </div>
 </template>
 
@@ -138,6 +136,7 @@ import { ElMessageBox } from 'element-plus'
 import { useUser } from '../../composables/useUser'
 import { getHouseList } from '../../api/house'
 import { addHouse, updateHouse, deleteHouse } from '../../api/admin'
+import ResultDialog from '../../components/ResultDialog.vue'
 
 const { isAdmin } = useUser()
 
@@ -266,5 +265,4 @@ onMounted(fetchData)
 </script>
 
 <style scoped>
-.page-title { margin: 0 0 20px; font-size: 22px; }
 </style>

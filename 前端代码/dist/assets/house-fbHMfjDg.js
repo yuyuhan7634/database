@@ -1,0 +1,1 @@
+import{r as t}from"./request-BfXbNDw_.js";function s(){return t.get("/house/list")}function a(){return t.get("/house/available")}function r(){return t.get("/house/standard/list")}export{s as a,a as b,r as g};

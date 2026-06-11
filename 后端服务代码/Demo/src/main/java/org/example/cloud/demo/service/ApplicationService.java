@@ -5,19 +5,25 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.cloud.demo.dto.ApplicationSubmitDTO;
 import org.example.cloud.demo.entity.*;
 import org.example.cloud.demo.mapper.*;
+import org.example.cloud.demo.util.AesUtil;
 import org.example.cloud.demo.util.DistributedLockUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -46,6 +52,13 @@ public class ApplicationService {
 
     @Autowired
     private DistributedLockUtil distributedLockUtil;
+
+    @Autowired
+    @Qualifier("estateExecutor")
+    private ThreadPoolTaskExecutor estateExecutor;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     // ================== 基础查询（带 Redis 缓存） ==================
 
@@ -112,14 +125,17 @@ public class ApplicationService {
         houseMapper.updateById(selectedHouse);
 
         Resident resident = new Resident();
-        resident.setOwnerName(application.getApplicantName());
-        resident.setDepartment(application.getDepartment());
+        resident.setOwnerName(AesUtil.encrypt(application.getApplicantName()));
+        resident.setDepartment(AesUtil.encrypt(application.getDepartment()));
         resident.setHouseNo(houseNo);
         resident.setHouseArea(selectedHouse.getArea());
         resident.setTitle(application.getTitle());
         resident.setFamilySize(application.getFamilySize());
         resident.setScore(application.getScore());
         residentMapper.insert(resident);
+        // 解密以供后续使用（如生成分配单）
+        resident.setOwnerName(application.getApplicantName());
+        resident.setDepartment(application.getDepartment());
 
         RentBill bill = createRentBill(houseNo, application.getApplicantName(),
                 selectedHouse.getArea(), selectedHouse.getRentPerSqm());
@@ -128,6 +144,7 @@ public class ApplicationService {
         return new AllocationResult(application, resident, bill, selectedHouse);
     }
 
+    @lombok.Data
     public static class AllocationResult {
         private Application application;
         private Resident resident;
@@ -268,7 +285,13 @@ public class ApplicationService {
         resident.setTitle(application.getTitle());
         resident.setFamilySize(application.getFamilySize());
         resident.setScore(application.getScore());
+        // 加密敏感字段后写入数据库
+        resident.setOwnerName(AesUtil.encrypt(application.getApplicantName()));
+        resident.setDepartment(AesUtil.encrypt(application.getDepartment()));
         residentMapper.updateById(resident);
+        // 解密以供后续使用
+        resident.setOwnerName(application.getApplicantName());
+        resident.setDepartment(application.getDepartment());
 
         application.setApplyStatus(1);
         application.setAllocatedHouseNo(newHouseNo);
@@ -287,20 +310,7 @@ public class ApplicationService {
         return transferSlip;
     }
 
-    // ================== 4. 计算住房分数 ==================
-
-    public Integer calculateHousingScore(String title, Integer familySize) {
-        int baseScore = 40;
-        if (title != null) {
-            if (title.contains("教授") || title.contains("处长")) baseScore = 100;
-            else if (title.contains("科长") || title.contains("研究员")) baseScore = 80;
-            else if (title.contains("讲师") || title.contains("工程师")) baseScore = 60;
-            else if (title.contains("实验员") || title.contains("干事")) baseScore = 50;
-        }
-        return baseScore + (familySize != null ? familySize : 1) * 10;
-    }
-
-    // ================== 5. 申请提交 ==================
+    // ================== 4. 申请提交 ==================
 
     @CacheEvict(value = {"applications"}, allEntries = true)
     @Transactional(rollbackFor = Exception.class)
@@ -353,7 +363,7 @@ public class ApplicationService {
             app.setFamilySize(dto.getFamilySize());
             app.setReqArea(dto.getReqArea());
 
-            int calculatedScore = calculateHousingScore(dto.getTitle(), dto.getFamilySize());
+            int calculatedScore = ScoreCalculator.calculate(dto.getTitle(), dto.getFamilySize());
             app.setScore(calculatedScore);
 
             QueryWrapper<HouseStandard> standardQuery = new QueryWrapper<>();
@@ -403,38 +413,110 @@ public class ApplicationService {
         }
     }
 
+    // ================== 6.5 多线程并行批量分房 ==================
+
+    /**
+     * 多线程并行批量分房
+     * 每个申请在独立线程中处理，各自拥有独立事务，FOR UPDATE 行锁防止重复分配
+     * 加分项说明：使用线程池 + CompletableFuture 实现并行分配，TransactionTemplate 保障事务隔离
+     */
     @CacheEvict(value = {"applications", "houses", "residents", "bills"}, allEntries = true)
-    @Transactional(rollbackFor = Exception.class)
     public String allocatePendingApplications() {
         List<Application> queue = getAllocationQueue();
         if (queue.isEmpty()) return "当前分房队列为空，无需进行分配。";
 
+        log.info("========== 多线程批量分房启动，共 {} 人排队，线程池: {} ==========",
+                queue.size(), estateExecutor.getThreadNamePrefix());
+
+        // 为每个申请创建异步任务
+        List<CompletableFuture<AllocationResult>> futures = new ArrayList<>();
+        for (Application app : queue) {
+            CompletableFuture<AllocationResult> future = CompletableFuture.supplyAsync(() ->
+                // 每个线程独立事务，避免长事务锁表
+                transactionTemplate.execute(status -> {
+                    try {
+                        House selectedHouse = findBestMatchHouse(app.getReqArea(), app.getScore());
+                        if (selectedHouse != null) {
+                            AllocationResult result = allocateHouseToApplicant(app, selectedHouse);
+                            log.info("线程 [{}] 分配成功：{} → {}",
+                                    Thread.currentThread().getName(),
+                                    app.getApplicantName(), selectedHouse.getHouseNo());
+                            return result;
+                        }
+                        return null;
+                    } catch (Exception e) {
+                        log.warn("线程 [{}] 分配失败：申请单 [{}], 原因: {}",
+                                Thread.currentThread().getName(),
+                                app.getApplyNo(), e.getMessage());
+                        status.setRollbackOnly();  // 标记回滚
+                        return null;
+                    }
+                }), estateExecutor
+            );
+            futures.add(future);
+        }
+
+        // 等待全部完成，收集结果
         int successCount = 0;
-        StringBuilder reportLog = new StringBuilder("【月底自动分房活动报告】\n");
+        int failCount = 0;
+        StringBuilder reportLog = new StringBuilder("【月底自动分房活动报告（多线程并行）】\n");
         StringBuilder allSlips = new StringBuilder("\n========== 住户分配单汇总 ==========\n");
 
-        for (Application app : queue) {
+        for (int i = 0; i < futures.size(); i++) {
+            Application app = queue.get(i);
             try {
-                House selectedHouse = findBestMatchHouse(app.getReqArea(), app.getScore());
-                if (selectedHouse != null) {
-                    AllocationResult result = allocateHouseToApplicant(app, selectedHouse);
+                AllocationResult result = futures.get(i).get();  // 阻塞等待结果
+                if (result != null) {
                     successCount++;
-                    reportLog.append(String.format(" - 分配成功：入选住户 [%s], 分配房号 [%s]\n",
-                            app.getApplicantName(), selectedHouse.getHouseNo()));
+                    reportLog.append(String.format(" - ✅ 分配成功：住户 [%s] → 房号 [%s]\n",
+                            app.getApplicantName(), result.getHouse().getHouseNo()));
                     allSlips.append("\n").append(result.toSlip()).append("\n");
                     allSlips.append("----------------------------------------");
+                } else {
+                    failCount++;
+                    reportLog.append(String.format(" - ⚠️ 分配跳过：住户 [%s]（无合适房源或分配失败）\n",
+                            app.getApplicantName()));
                 }
             } catch (Exception e) {
-                log.warn("分配失败：申请单 [{}], 原因: {}", app.getApplyNo(), e.getMessage());
-                reportLog.append(String.format(" - 分配失败：申请单 [%s], 原因: %s\n", app.getApplyNo(), e.getMessage()));
+                failCount++;
+                log.warn("获取异步结果异常：申请单 [{}], 原因: {}", app.getApplyNo(), e.getMessage());
+                reportLog.append(String.format(" - ❌ 异常：申请单 [%s], 原因: %s\n",
+                        app.getApplyNo(), e.getMessage()));
             }
         }
 
-        reportLog.append("\n💡 总结：本次活动共扫描排队者 ").append(queue.size())
-                .append(" 人，成功匹配并分配房源 ").append(successCount).append(" 套。");
+        reportLog.append("\n💡 总结：共扫描 ").append(queue.size())
+                .append(" 人，成功 ").append(successCount).append(" 套，失败 ").append(failCount).append(" 套");
         reportLog.append(allSlips);
         log.info(reportLog.toString());
         return reportLog.toString();
+    }
+
+    // ================== 7.6 驳回申请 ==================
+
+    @CacheEvict(value = {"applications"}, allEntries = true)
+    @Transactional(rollbackFor = Exception.class)
+    public String rejectApplication(String applyNo, String reason) {
+        Application application = applicationMapper.selectById(applyNo);
+        if (application == null) {
+            throw new RuntimeException("申请单不存在！");
+        }
+        if (application.getApplyStatus() != 0) {
+            throw new RuntimeException("该申请已被处理，无法重复操作！");
+        }
+        if (reason == null || reason.trim().isEmpty()) {
+            throw new RuntimeException("驳回原因不能为空！");
+        }
+
+        application.setApplyStatus(2); // 已驳回
+        application.setRejectReason(reason);
+        application.setProcessTime(LocalDateTime.now());
+        applicationMapper.updateById(application);
+
+        String typeName = application.getApplyType() == 1 ? "分房" : application.getApplyType() == 2 ? "调房" : "退房";
+        log.info("====== 申请驳回：[{}] 的 [{}] 申请（编号：{}）已被驳回，原因：{} ======",
+                application.getApplicantName(), typeName, applyNo, reason);
+        return "申请驳回成功！编号：" + applyNo + "（" + typeName + "申请）";
     }
 
     // ================== 7. 生成月度账单 ==================
@@ -498,52 +580,6 @@ public class ApplicationService {
         return "申请撤回成功！编号：" + applyNo + "（" + typeName + "申请）";
     }
 
-    // ================== 8. 生成统计报表 ==================
-
-    public Map<String, Object> generateStatistics() {
-        Map<String, Object> stats = new java.util.HashMap<>();
-
-        long totalHouses = houseMapper.selectCount(null);
-        long emptyHouses = houseMapper.selectCount(new QueryWrapper<House>().eq("status", 0));
-        long occupiedHouses = totalHouses - emptyHouses;
-        stats.put("totalHouses", totalHouses);
-        stats.put("emptyHouses", emptyHouses);
-        stats.put("occupiedHouses", occupiedHouses);
-        stats.put("occupancyRate", String.format("%.2f%%",
-                totalHouses > 0 ? (double) occupiedHouses / totalHouses * 100 : 0));
-
-        QueryWrapper<Resident> deptQuery = new QueryWrapper<>();
-        deptQuery.select("department", "count(*) as count").groupBy("department");
-        stats.put("departmentStats", residentMapper.selectMaps(deptQuery));
-
-        QueryWrapper<Resident> titleQuery = new QueryWrapper<>();
-        titleQuery.select("title", "count(*) as count").groupBy("title");
-        stats.put("titleStats", residentMapper.selectMaps(titleQuery));
-
-        List<Resident> allResidents = residentMapper.selectList(null);
-        long smallHouse = allResidents.stream().filter(r -> r.getHouseArea().compareTo(new BigDecimal("60")) <= 0).count();
-        long mediumHouse = allResidents.stream().filter(r ->
-                r.getHouseArea().compareTo(new BigDecimal("60")) > 0
-                        && r.getHouseArea().compareTo(new BigDecimal("100")) <= 0).count();
-        long largeHouse = allResidents.stream().filter(r -> r.getHouseArea().compareTo(new BigDecimal("100")) > 0).count();
-        stats.put("smallHouseCount", smallHouse);
-        stats.put("mediumHouseCount", mediumHouse);
-        stats.put("largeHouseCount", largeHouse);
-
-        List<House> emptyHouseList = houseMapper.selectList(
-                new QueryWrapper<House>().eq("status", 0).orderByAsc("house_no"));
-        stats.put("emptyHouseList", emptyHouseList);
-
-        long pendingApps = applicationMapper.selectCount(new QueryWrapper<Application>().eq("apply_status", 0));
-        long approvedApps = applicationMapper.selectCount(new QueryWrapper<Application>().eq("apply_status", 1));
-        long rejectedApps = applicationMapper.selectCount(new QueryWrapper<Application>().eq("apply_status", 2));
-        stats.put("pendingApplications", pendingApps);
-        stats.put("approvedApplications", approvedApps);
-        stats.put("rejectedApplications", rejectedApps);
-
-        return stats;
-    }
-
     // ================== 私有工具方法 ==================
 
     private RentBill createRentBill(String houseNo, String ownerName, BigDecimal area, BigDecimal rentPerSqm) {
@@ -559,13 +595,18 @@ public class ApplicationService {
 
     private Resident getResidentByName(String ownerName) {
         QueryWrapper<Resident> query = new QueryWrapper<>();
-        query.eq("owner_name", ownerName);
-        return residentMapper.selectOne(query);
+        query.eq("owner_name", AesUtil.encrypt(ownerName));
+        Resident r = residentMapper.selectOne(query);
+        if (r != null) {
+            r.setOwnerName(AesUtil.decrypt(r.getOwnerName()));
+            r.setDepartment(AesUtil.decrypt(r.getDepartment()));
+        }
+        return r;
     }
 
     private void removeResident(String ownerName, String houseNo) {
         QueryWrapper<Resident> query = new QueryWrapper<>();
-        query.eq("owner_name", ownerName).eq("house_no", houseNo);
+        query.eq("owner_name", AesUtil.encrypt(ownerName)).eq("house_no", houseNo);
         residentMapper.delete(query);
     }
 

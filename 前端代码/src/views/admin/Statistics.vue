@@ -96,9 +96,4 @@ onMounted(async () => {
 })
 </script>
 
-<style scoped>
-.page-title { margin: 0 0 20px; font-size: 22px; }
-.stat-card { text-align: center; }
-.stat-value { font-size: 36px; font-weight: bold; }
-.stat-label { font-size: 14px; color: #909399; margin-top: 8px; }
-</style>
+<style scoped></style>
