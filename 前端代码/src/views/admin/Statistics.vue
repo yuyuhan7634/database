@@ -1,5 +1,5 @@
 <template>
-  <div class="statistics">
+  <div class="statistics" v-loading="loading">
     <h2 class="page-title">统计报表</h2>
 
     <!-- 综合统计 -->

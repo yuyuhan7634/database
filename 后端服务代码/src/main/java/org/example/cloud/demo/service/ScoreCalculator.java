@@ -17,7 +17,8 @@ public final class ScoreCalculator {
     public static int calculate(String title, Integer familySize) {
         int baseScore = 40;
         if (title != null) {
-            if (title.contains("教授") || title.contains("处长")) baseScore = 100;
+            if (title.contains("副教授")) baseScore = 80;
+            else if (title.contains("教授") || title.contains("处长")) baseScore = 100;
             else if (title.contains("科长") || title.contains("研究员")) baseScore = 80;
             else if (title.contains("讲师") || title.contains("工程师")) baseScore = 60;
             else if (title.contains("实验员") || title.contains("干事")) baseScore = 50;
